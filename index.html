@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://fonts.gstatic.com">
+<title>MinimalBrowser</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500&display=swap');
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:           #0a0a0a;
+  --surface:      #0f0f0f;
+  --border:       #1a1a1a;
+  --border-hi:    #2e2e2e;
+  --text:         #b0b0b0;
+  --text-dim:     #3a3a3a;
+  --text-url:     #6b8ccc;
+  --ok:           #3a7a3a;
+  --err:          #7a3a3a;
+  --load:         #3a5a8a;
+  --mono: 'JetBrains Mono', monospace;
+}
+
+html, body {
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 11px;
+  overflow: hidden;
+  user-select: none;
+}
+
+/* ── Titlebar ── */
+#titlebar {
+  height: 28px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
+  -webkit-app-region: drag;
+  gap: 6px;
+}
+
+.wbtn {
+  width: 10px; height: 10px;
+  border: 1px solid var(--border-hi);
+  background: transparent;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+  transition: background 0.1s;
+  flex-shrink: 0;
+}
+.wbtn:hover { background: var(--border-hi); }
+#wclose:hover  { background: #5a2020; border-color: #7a3030; }
+#wmin:hover    { background: #3a3a1a; border-color: #5a5a2a; }
+#wmax:hover    { background: #1a3a1a; border-color: #2a5a2a; }
+
+#page-title {
+  flex: 1;
+  text-align: center;
+  font-size: 9px;
+  color: var(--text-dim);
+  letter-spacing: 0.15em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0 8px;
+  -webkit-app-region: drag;
+}
+
+/* ── URL Bar ── */
+#urlbar-row {
+  height: 36px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  gap: 6px;
+  -webkit-app-region: no-drag;
+}
+
+#indicator {
+  width: 4px; height: 4px;
+  background: var(--text-dim);
+  flex-shrink: 0;
+  transition: background 0.2s;
+}
+#indicator.loading { background: var(--load); animation: blink 0.8s infinite; }
+#indicator.ok      { background: var(--ok); }
+#indicator.err     { background: var(--err); }
+
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.25} }
+
+#urlbar {
+  flex: 1;
+  height: 22px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text-url);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 400;
+  padding: 0 8px;
+  outline: none;
+  letter-spacing: 0.02em;
+  transition: border-color 0.12s, color 0.12s;
+  -webkit-app-region: no-drag;
+}
+#urlbar:focus {
+  border-color: var(--border-hi);
+  color: var(--text);
+}
+#urlbar::placeholder { color: var(--text-dim); font-size: 10px; }
+#urlbar::selection   { background: #1e3050; }
+
+#nav-hint {
+  font-size: 9px;
+  color: var(--text-dim);
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+}
+
+/* ── Status Bar ── */
+#statusbar {
+  position: fixed;
+  bottom: 0; left: 0; right: 0;
+  height: 18px;
+  background: var(--bg);
+  border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
+  gap: 14px;
+  font-size: 9px;
+  color: var(--text-dim);
+  letter-spacing: 0.06em;
+}
+
+#status-msg { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sstat { display: flex; gap: 4px; }
+.sstat span:first-child { color: #252525; }
+</style>
+</head>
+<body>
+
+<!-- Titlebar -->
+<div id="titlebar">
+  <div class="wbtn" id="wclose"  title="关闭"></div>
+  <div class="wbtn" id="wmin"    title="最小化"></div>
+  <div class="wbtn" id="wmax"    title="最大化"></div>
+  <div id="page-title">about:blank</div>
+</div>
+
+<!-- URL Bar -->
+<div id="urlbar-row">
+  <div id="indicator"></div>
+  <input id="urlbar" type="text"
+    placeholder="输入网址，按 Enter 跳转"
+    spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off">
+  <span id="nav-hint">↵跳转 &nbsp; Alt+←→历史 &nbsp; Ctrl+L聚焦</span>
+</div>
+
+<!-- Status Bar -->
+<div id="statusbar">
+  <span id="status-msg">就绪</span>
+  <div class="sstat"><span>TIME</span><span id="s-time">—</span></div>
+  <div class="sstat"><span>REQ</span><span id="s-req">0</span></div>
+</div>
+
+<script>
+const urlbar   = document.getElementById('urlbar');
+const indicator= document.getElementById('indicator');
+const pageTitle= document.getElementById('page-title');
+const statusMsg= document.getElementById('status-msg');
+const sTime    = document.getElementById('s-time');
+const sReq     = document.getElementById('s-req');
+
+let reqCount = 0, t0 = 0;
+
+function setIndicator(state) {
+  indicator.className = state;
+}
+
+// ── 导航 ──
+urlbar.addEventListener('keydown', e => {
+  if (e.key === 'Enter') {
+    const url = urlbar.value.trim();
+    t0 = Date.now(); reqCount++;
+    sReq.textContent = reqCount;
+    window.browser.navigate(url);
+    urlbar.blur();
+  }
+});
+
+document.addEventListener('keydown', e => {
+  if ((e.ctrlKey || e.metaKey) && e.key === 'l') {
+    e.preventDefault(); urlbar.focus(); urlbar.select();
+  }
+  if (e.altKey && e.key === 'ArrowLeft')  { e.preventDefault(); window.browser.goBack(); }
+  if (e.altKey && e.key === 'ArrowRight') { e.preventDefault(); window.browser.goForward(); }
+  if (e.key === 'F5') window.browser.reload();
+});
+
+// ── 窗口按钮 ──
+document.getElementById('wclose').addEventListener('click', () => window.browser.windowClose());
+document.getElementById('wmin'  ).addEventListener('click', () => window.browser.windowMinimize());
+document.getElementById('wmax'  ).addEventListener('click', () => window.browser.windowMaximize());
+
+// ── IPC 事件 ──
+window.browser.onLoading(url => {
+  setIndicator('loading');
+  statusMsg.textContent = '连接中…';
+  urlbar.value = url === 'about:blank' ? '' : url;
+  pageTitle.textContent = url || 'about:blank';
+  t0 = t0 || Date.now();
+});
+
+window.browser.onLoaded(({ url, title }) => {
+  setIndicator('ok');
+  const elapsed = ((Date.now() - t0) / 1000).toFixed(2);
+  sTime.textContent = elapsed + 's';
+  statusMsg.textContent = '已加载';
+  urlbar.value = url === 'about:blank' ? '' : url;
+  pageTitle.textContent = title || url || 'about:blank';
+  t0 = 0;
+});
+
+window.browser.onError(({ code, desc }) => {
+  setIndicator('err');
+  statusMsg.textContent = `错误 ${code}: ${desc}`;
+  sTime.textContent = '—';
+});
+
+window.browser.onTitleUpdated(title => {
+  pageTitle.textContent = title || urlbar.value || 'about:blank';
+});
+
+// 初始聚焦
+urlbar.focus();
+</script>
+</body>
+</html>
